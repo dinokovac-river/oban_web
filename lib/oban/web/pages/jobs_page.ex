@@ -266,9 +266,9 @@ defmodule Oban.Web.JobsPage do
       jobs: jobs,
       nodes: nodes(conf),
       os_time: System.os_time(:second),
-      queues: queues(conf),
+      queues: queues(conf, extract_previous_counts(socket.assigns.queues)),
       selected: selected,
-      states: states(conf)
+      states: states(conf, socket.assigns.states)
     )
   end
 
@@ -318,7 +318,7 @@ defmodule Oban.Web.JobsPage do
       |> assign(history: [])
       |> assign(params: params)
       |> assign(jobs: JobQuery.all_jobs(params, conf, resolver: resolver))
-      |> assign(nodes: nodes(conf), queues: queues(conf), states: states(conf))
+      |> assign(nodes: nodes(conf), queues: queues(conf, extract_previous_counts(socket.assigns.queues)), states: states(conf, socket.assigns.states))
 
     {:noreply, socket}
   end
@@ -589,15 +589,27 @@ defmodule Oban.Web.JobsPage do
     |> Enum.sort_by(& &1.name)
   end
 
-  def states(conf) do
+  @doc false
+  def states(conf, previous \\ []) do
     counts = Met.latest(conf.name, :full_count, group: "state")
 
-    for state <- @ordered_states do
-      %{name: state, count: Map.get(counts, state, 0)}
+    if counts == %{} and previous != [] do
+      previous
+    else
+      for state <- @ordered_states do
+        %{name: state, count: Map.get(counts, state, 0)}
+      end
     end
   end
 
-  def queues(conf) do
-    QueueQuery.all_queues(%{}, conf)
+  def queues(conf, previous_counts \\ %{}) do
+    QueueQuery.all_queues(%{}, conf, previous_counts)
+  end
+
+  defp extract_previous_counts(queues) do
+    for state <- [:available, :executing, :scheduled, :retryable], into: %{} do
+      per_queue = for q <- queues, into: %{}, do: {q.name, Map.get(q.counts, state, 0)}
+      {state, per_queue}
+    end
   end
 end

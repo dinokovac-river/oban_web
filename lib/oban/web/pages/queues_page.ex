@@ -163,7 +163,8 @@ defmodule Oban.Web.QueuesPage do
     conf = socket.assigns.conf
     params = socket.assigns.params
     limit = params[:limit] || @min_limit
-    queues = QueueQuery.all_queues(params, conf)
+    previous_counts = extract_previous_counts(socket.assigns.queues)
+    queues = QueueQuery.all_queues(params, conf, previous_counts)
 
     node_history =
       if socket.assigns.detail do
@@ -174,7 +175,7 @@ defmodule Oban.Web.QueuesPage do
 
     assign(socket,
       checks: checks(conf),
-      counts: counts(conf),
+      counts: counts(conf, socket.assigns.counts),
       history: queue_history(conf),
       node_history: node_history,
       queues: queues,
@@ -187,8 +188,15 @@ defmodule Oban.Web.QueuesPage do
     Met.checks(conf.name)
   end
 
-  defp counts(conf) do
-    Met.latest(conf.name, :full_count, group: "queue", filters: [state: "available"])
+  @doc false
+  def counts(conf, previous \\ %{}) do
+    result = Met.latest(conf.name, :full_count, group: "queue", filters: [state: "available"])
+
+    if result == %{} and previous != %{} do
+      previous
+    else
+      result
+    end
   end
 
   defp queue_history(conf) do
@@ -489,6 +497,13 @@ defmodule Oban.Web.QueuesPage do
   end
 
   # Socket Helpers
+
+  defp extract_previous_counts(queues) do
+    for state <- [:available, :executing, :scheduled, :retryable], into: %{} do
+      per_queue = for q <- queues, into: %{}, do: {q.name, Map.get(q.counts, state, 0)}
+      {state, per_queue}
+    end
+  end
 
   defp scale_message(queue, opts) do
     cond do

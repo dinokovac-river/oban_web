@@ -92,17 +92,19 @@ defmodule Oban.Web.QueueQuery do
 
   # Querying
 
-  def all_queues(params, %{name: name}) do
+  def all_queues(params, conf, previous_counts \\ %{})
+
+  def all_queues(params, %{name: name}, previous_counts) do
     {sort_by, sort_dir} = parse_sort(params)
     limit = Map.get(params, :limit) || Map.get(params, "limit")
 
     conditions = Map.take(params, filterable())
 
     counts = %{
-      available: Met.latest(name, :full_count, group: "queue", filters: [state: "available"]),
-      executing: Met.latest(name, :full_count, group: "queue", filters: [state: "executing"]),
-      scheduled: Met.latest(name, :full_count, group: "queue", filters: [state: "scheduled"]),
-      retryable: Met.latest(name, :full_count, group: "queue", filters: [state: "retryable"])
+      available: met_or_previous(name, :available, previous_counts),
+      executing: met_or_previous(name, :executing, previous_counts),
+      scheduled: met_or_previous(name, :scheduled, previous_counts),
+      retryable: met_or_previous(name, :retryable, previous_counts)
     }
 
     queues =
@@ -114,6 +116,16 @@ defmodule Oban.Web.QueueQuery do
       |> Enum.sort_by(&order(&1, sort_by), sort_dir)
 
     if limit, do: Enum.take(queues, limit), else: queues
+  end
+
+  defp met_or_previous(name, state, previous_counts) do
+    result = Met.latest(name, :full_count, group: "queue", filters: [state: to_string(state)])
+
+    if result == %{} do
+      Map.get(previous_counts, state, %{})
+    else
+      result
+    end
   end
 
   defp new({name, checks}, counts) do
